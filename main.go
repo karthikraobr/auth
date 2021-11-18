@@ -13,8 +13,11 @@ const (
 
 func main() {
 	ctx := context.Background()
-	authMgr, _ := auth.NewAuthManager(ctx, auth.WithProviderUrl(provider_url), auth.WithSkipClientIDCheck(true))
-	http.Handle("/", authMgr.AuthMiddleware(http.HandlerFunc(dumpHandler)))
+	authMgr, err := auth.NewManager(ctx, auth.WithProviderUrl(provider_url), auth.WithSkipClientIDCheck(true))
+	if err != nil {
+		panic(err)
+	}
+	http.Handle("/", authMgr.Middleware(http.HandlerFunc(dumpHandler)))
 	http.ListenAndServe(":8080", nil)
 }
 

@@ -10,50 +10,54 @@ import (
 	"github.com/coreos/go-oidc"
 )
 
+const (
+	jwksURL = "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com"
+)
+
 var (
 	// ErrAuthorizationHeaderMalformed indicates that 'Authorization' header is malformed
 	ErrAuthorizationHeaderMalformed = errors.New("auth: malformed authorization header")
 	ErrProviderURLNotSet            = errors.New("auth: provider url not set")
 )
 
-type AuthManager struct {
+type Manager struct {
 	verifier *oidc.IDTokenVerifier
 }
 
 type config struct {
+	providerURL       string
 	skipClientIDCheck bool
 	skipExpiryCheck   bool
 	skipIssuerCheck   bool
-	providerURL       string
 }
 
-// AuthOption represents a function that can be provided as a parameter to NewAuthManager.
-type AuthOption func(*config)
+// Option represents a function that can be provided as a parameter to NewAuthManager.
+type Option func(*config)
 
-func WithProviderUrl(providerURL string) AuthOption {
+func WithProviderUrl(providerURL string) Option {
 	return func(c *config) {
 		c.providerURL = providerURL
 	}
 }
 
-func WithSkipClientIDCheck(skip bool) AuthOption {
+func WithSkipClientIDCheck(skip bool) Option {
 	return func(c *config) {
 		c.skipClientIDCheck = skip
 	}
 }
-func WithSkipExpiryCheck(skip bool) AuthOption {
+func WithSkipExpiryCheck(skip bool) Option {
 	return func(c *config) {
 		c.skipExpiryCheck = skip
 	}
 }
 
-func WithSkipIssuerCheck(skip bool) AuthOption {
+func WithSkipIssuerCheck(skip bool) Option {
 	return func(c *config) {
 		c.skipIssuerCheck = skip
 	}
 }
 
-func NewAuthManager(ctx context.Context, o ...AuthOption) (*AuthManager, error) {
+func NewManager(ctx context.Context, o ...Option) (*Manager, error) {
 	var c config
 	for _, o := range o {
 		o(&c)
@@ -65,7 +69,7 @@ func NewAuthManager(ctx context.Context, o ...AuthOption) (*AuthManager, error) 
 	if err != nil {
 		return nil, err
 	}
-	return &AuthManager{
+	return &Manager{
 		verifier: provider.Verifier(&oidc.Config{
 			SkipClientIDCheck: c.skipClientIDCheck,
 			SkipExpiryCheck:   c.skipExpiryCheck,
@@ -74,9 +78,9 @@ func NewAuthManager(ctx context.Context, o ...AuthOption) (*AuthManager, error) 
 	}, nil
 }
 
-// AuthMiddleware is a middleware that extracts the JWT token from the HTTP and puts the email and the externalID in the context.
+// Middleware is a middleware that extracts the JWT token from the HTTP and puts the email and the externalID in the context.
 // Use the EmailFromContext and ExternalIDFromContext functions to get the email and externalID from the context.
-func (a *AuthManager) AuthMiddleware(next http.Handler) http.Handler {
+func (a *Manager) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		token, err := getToken(r.Header)
