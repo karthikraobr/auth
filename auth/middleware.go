@@ -45,6 +45,7 @@ func WithSkipClientIDCheck(skip bool) Option {
 		c.skipClientIDCheck = skip
 	}
 }
+
 func WithSkipExpiryCheck(skip bool) Option {
 	return func(c *config) {
 		c.skipExpiryCheck = skip
@@ -67,7 +68,7 @@ func NewManager(ctx context.Context, o ...Option) (*Manager, error) {
 	}
 	provider, err := oidc.NewProvider(ctx, c.providerURL)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("auth: failed to created provider %w", err)
 	}
 	return &Manager{
 		verifier: provider.Verifier(&oidc.Config{
@@ -78,7 +79,7 @@ func NewManager(ctx context.Context, o ...Option) (*Manager, error) {
 	}, nil
 }
 
-// Middleware is a middleware that extracts the JWT token from the HTTP and puts the email and the externalID in the context.
+// Middleware extracts the JWT token from the HTTP header and puts the email and the externalID in the context.
 // Use the EmailFromContext and ExternalIDFromContext functions to get the email and externalID from the context.
 func (a *Manager) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -97,7 +98,7 @@ func (a *Manager) Middleware(next http.Handler) http.Handler {
 			ExternalID string `json:"user_id"`
 		}{}
 		if err := idToken.Claims(&claims); err != nil {
-			http.Error(w, fmt.Sprintf("failed to get expected claims: %v", err), http.StatusInternalServerError)
+			http.Error(w, fmt.Sprintf("failed to extract expected claims: %v", err), http.StatusInternalServerError)
 			return
 		}
 		emailContext := NewEmailContext(ctx, claims.Email)
