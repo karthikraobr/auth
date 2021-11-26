@@ -3,17 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"jwt-test/auth"
+	"jwt-test/guard"
 	"net/http"
-)
-
-const (
-	provider_url = "https://securetoken.google.com/flink-core-staging"
 )
 
 func main() {
 	ctx := context.Background()
-	authMgr, err := auth.NewManager(ctx, auth.WithProviderUrl(provider_url), auth.WithSkipClientIDCheck(true))
+	authMgr, err := guard.NewManager(ctx, guard.WithGCPProjectID("flink-core-staging"), guard.WithSkipClientIDCheck(true))
 	if err != nil {
 		panic(err)
 	}
@@ -22,8 +18,8 @@ func main() {
 }
 
 func dumpHandler(w http.ResponseWriter, r *http.Request) {
-	email, _ := auth.EmailFromContext(r.Context())
-	externalID, _ := auth.ExternalIDFromContext(r.Context())
+	email, _ := guard.EmailFromContext(r.Context())
+	externalID, _ := guard.ExternalIDFromContext(r.Context())
 	b, _ := json.Marshal(struct {
 		Email      string
 		ExternalID string

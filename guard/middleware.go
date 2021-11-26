@@ -1,4 +1,4 @@
-package auth
+package guard
 
 import (
 	"context"
@@ -10,18 +10,15 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 )
 
-const (
-	jwksURL = "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com"
-)
-
 var (
 	// ErrAuthorizationHeaderMalformed indicates that 'Authorization' header is malformed
-	ErrAuthorizationHeaderMalformed = errors.New("auth: malformed authorization header")
-	ErrProviderURLNotSet            = errors.New("auth: provider url not set")
+	ErrAuthorizationHeaderMalformed = errors.New("guard: malformed authorization header")
+	ErrProviderURLNotSet            = errors.New("guard: provider url not set")
 )
 
 type Manager struct {
-	verifier *oidc.IDTokenVerifier
+	verifier         *oidc.IDTokenVerifier
+	skipVerification bool
 }
 
 type config struct {
@@ -29,6 +26,7 @@ type config struct {
 	skipClientIDCheck bool
 	skipExpiryCheck   bool
 	skipIssuerCheck   bool
+	skipVerification  bool
 }
 
 // Option represents a function that can be provided as a parameter to NewAuthManager.
@@ -58,6 +56,18 @@ func WithSkipIssuerCheck(skip bool) Option {
 	}
 }
 
+func WithSkipVerification(skip bool) Option {
+	return func(c *config) {
+		c.skipVerification = skip
+	}
+}
+
+func WithGCPProjectID(projectID string) Option {
+	return func(c *config) {
+		c.providerURL = "https://securetoken.google.com/" + projectID
+	}
+}
+
 func NewManager(ctx context.Context, o ...Option) (*Manager, error) {
 	var c config
 	for _, o := range o {
@@ -70,27 +80,30 @@ func NewManager(ctx context.Context, o ...Option) (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("auth: failed to created provider %w", err)
 	}
+
 	return &Manager{
 		verifier: provider.Verifier(&oidc.Config{
 			SkipClientIDCheck: c.skipClientIDCheck,
 			SkipExpiryCheck:   c.skipExpiryCheck,
 			SkipIssuerCheck:   c.skipIssuerCheck,
 		}),
+		skipVerification: c.skipVerification,
 	}, nil
 }
 
 // Middleware extracts the JWT token from the HTTP header and puts the email and the externalID in the context.
 // Use the EmailFromContext and ExternalIDFromContext functions to get the email and externalID from the context.
-func (a *Manager) Middleware(next http.Handler) http.Handler {
+func (m *Manager) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		token, err := getToken(r.Header)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusUnauthorized)
+			ret(m.skipVerification, err, next, w, r)
+			return
 		}
-		idToken, err := a.verifier.Verify(ctx, token)
+		idToken, err := m.verifier.Verify(ctx, token)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("failed to verify token: %v", err), http.StatusUnauthorized)
+			ret(m.skipVerification, err, next, w, r)
 			return
 		}
 		claims := struct {
@@ -98,7 +111,7 @@ func (a *Manager) Middleware(next http.Handler) http.Handler {
 			ExternalID string `json:"user_id"`
 		}{}
 		if err := idToken.Claims(&claims); err != nil {
-			http.Error(w, fmt.Sprintf("failed to extract expected claims: %v", err), http.StatusInternalServerError)
+			ret(m.skipVerification, err, next, w, r)
 			return
 		}
 		emailContext := NewEmailContext(ctx, claims.Email)
@@ -117,4 +130,12 @@ func getToken(header http.Header) (string, error) {
 		return "", ErrAuthorizationHeaderMalformed
 	}
 	return parts[1], nil
+}
+
+func ret(skipVerification bool, err error, next http.Handler, w http.ResponseWriter, r *http.Request) {
+	if skipVerification {
+		next.ServeHTTP(w, r)
+		return
+	}
+	http.Error(w, err.Error(), http.StatusUnauthorized)
 }
